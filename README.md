@@ -9,6 +9,10 @@
 [![GPU](https://img.shields.io/badge/GPU-NVIDIA%20%C2%B7%20OpenGL-76B900.svg?logo=nvidia&logoColor=white)](#5%EF%B8%8F%E2%83%A3-switch-fusion-to-opengl)
 [![MCP](https://img.shields.io/badge/MCP-execute__python-7c3aed.svg)](mcp/README.md)
 
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-pink?style=for-the-badge&logo=githubsponsors)](https://github.com/sponsors/elisaul77)
+[![PayPal](https://img.shields.io/badge/PayPal-Donate-blue?style=for-the-badge&logo=paypal)](https://paypal.me/eflorezp)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-yellow?style=for-the-badge&logo=buymeacoffee)](https://buymeacoffee.com/elisaul77)
+
 How I got **Autodesk Fusion 2702.x** fully working on **Pop!_OS / Ubuntu 22.04 with an NVIDIA GPU**:
 installed, logged in, with a **working 3D viewport**, and **controllable by an AI through MCP**, without upgrading the distro.
 
@@ -301,3 +305,11 @@ token-protected. See [`mcp/README.md`](mcp/README.md).
 ## 📄 License
 
 [MIT](LICENSE). Autodesk Fusion is proprietary software from Autodesk; this repo only contains scripts and notes.
+
+## ❤️ Support the project
+
+If it saved you a weekend, consider supporting:
+
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-pink?style=for-the-badge&logo=githubsponsors)](https://github.com/sponsors/elisaul77)
+[![PayPal](https://img.shields.io/badge/PayPal-Donate-blue?style=for-the-badge&logo=paypal)](https://paypal.me/eflorezp)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-yellow?style=for-the-badge&logo=buymeacoffee)](https://buymeacoffee.com/elisaul77)
