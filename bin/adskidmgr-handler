@@ -1,0 +1,14 @@
+#!/bin/bash
+# Browser callback handler for adskidmgr:/login?code=...&state=...
+# Runs AdskIdentityManager.exe INSIDE the running fusion360 container, so it joins the same
+# wineserver as Fusion (no nsenter/sudo needed). Pass the full URL as an argument:
+# "wine start <url>" truncates at the first "&" and breaks PKCE.
+URI="$1"
+WINE_DIR="${WINE_DIR:-$HOME/fusion-wine-build}"
+WINEPREFIX="${WINEPREFIX:-$HOME/.autodesk_fusion/wineprefixes/default}"
+LOG="${XDG_STATE_HOME:-$HOME/.local/state}/adskidmgr-handler.log"; mkdir -p "$(dirname "$LOG")"
+IDMGR=$(find "$WINEPREFIX/drive_c/Program Files/Autodesk/webdeploy/production" -name AdskIdentityManager.exe -printf "%T+ %p\n" | sort -r | head -1 | cut -d' ' -f2-)
+echo "=== $(date -Iseconds) callback ${URI:0:40}..." >> "$LOG"
+docker exec -u "$(id -u):$(id -g)" -e WINEPREFIX="$WINEPREFIX" -e WINEDEBUG=-all -e DISPLAY="$DISPLAY" \
+  fusion360 "$WINE_DIR/bin/wine" "$IDMGR" "$URI" >> "$LOG" 2>&1
+echo "exit=$?" >> "$LOG"

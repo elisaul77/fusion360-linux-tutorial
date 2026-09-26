@@ -1,384 +1,216 @@
-# Fusion 360 on Linux with Bottles (Flatpak) — Community Tutorial
+# Autodesk Fusion on Linux (2026) — Docker + patched Wine + OpenGL
 
-A complete guide to install and run Autodesk Fusion 360 on Linux using Bottles (Flatpak),
-including solving the OAuth2 login problem which is the main challenge.
+How I got **Autodesk Fusion 2702.x** fully working on **Pop!_OS / Ubuntu 22.04 with an NVIDIA GPU**:
+installed, logged in, and with a **working 3D viewport**, without upgrading the distro.
 
-**Tested on:** Pop!_OS 22.04 LTS · kernel 6.x · NVIDIA discrete GPU  
-**Should work on:** Ubuntu 22.04+, Debian-based distros with Flatpak support  
-**Fusion 360 version:** 2702.x (2025–2026 releases)
+> **Tested:** September 2026 · Fusion 2702.1.58 · Pop!_OS 22.04 (glibc 2.35) · NVIDIA RTX 3050, driver 580 · X11.
+> One machine, one person. Treat it as a field report, not an official installer. Corrections welcome.
+>
+> The previous Bottles/Flatpak guide is kept in [`docs/legacy-bottles-flatpak.md`](docs/legacy-bottles-flatpak.md).
+> On current builds it gets you to the login screen but **not** to a usable viewport.
 
----
+## TL;DR — the five things that mattered
 
-## What You Need
-
-| Software | Version | Install |
+| Problem | Cause | Fix |
 |---|---|---|
-| Flatpak | any | `sudo apt install flatpak` |
-| Bottles | 63.2+ | `flatpak install flathub com.usebottles.bottles` |
-| Firefox | any | default browser (for OAuth login) |
-| `nsenter` | any | included in `util-linux` (pre-installed) |
-| Wine | sys-wine-11.0 | provided by Bottles runner |
+| Viewport black/white, bodies drawn as black silhouettes | Fusion's Direct3D 11 shaders use **class linkage**, which neither DXVK nor wined3d implement | Switch Fusion's graphics driver to **OpenGL** (`VirtualDeviceGLCore`) |
+| Viewport never renders even the grid | Stock Wine lacks the child-window rendering fixes | Use the **[designgears](https://github.com/designgears/Autodesk-Fusion-360-for-Linux) patched Wine** |
+| Patched Wine: ``GLIBC_2.38 not found`` | Ubuntu 22.04 ships glibc 2.35 | Run it inside an **Ubuntu 24.04 Docker container** with the NVIDIA runtime |
+| "Microsoft WebView2 is required" / `No WebView2 installed` | Runtime missing or not registered where `WebView2Loader.dll` looks | WebView2 **109.0.1518.78** + registry key `EdgeUpdate\ClientState\{…}\EBWebView` |
+| Installer does nothing, segfaults, or "file not found" | `winetricks sandbox` **deletes the `Z:` drive** | `ln -s / "$WINEPREFIX/dosdevices/z:"` |
+
+Credit: this builds on [cryinkfly/Autodesk-Fusion-360-for-Linux](https://github.com/cryinkfly/Autodesk-Fusion-360-for-Linux)
+(archived Feb 2026) and the maintained fork [designgears/Autodesk-Fusion-360-for-Linux](https://github.com/designgears/Autodesk-Fusion-360-for-Linux),
+which provides the patched Wine used here.
 
 ---
 
-## Part 1 — Install Fusion 360 in Bottles
+## Requirements
 
-### 1.1 Create the Bottle
+- NVIDIA GPU with the proprietary driver, X11 session
+- Docker + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/) (`docker run --gpus all` must work)
+- [winehq-staging](https://wiki.winehq.org/Ubuntu) on the host (only to prepare the prefix)
+- `7z` (`p7zip-full`), `xdotool` optional
+- ~15 GB of disk, **~4 GB of free RAM** while Fusion runs
 
-Open Bottles → New Bottle:
-- **Name:** Fusion-360 (or anything you like)
-- **Environment:** Gaming
-- **Runner:** sys-wine-11.0 (or latest available)
-- **Architecture:** win64
-
-### 1.2 Bottle settings (before installing)
-
-In the bottle's settings, configure:
+The scripts assume these paths (override them with environment variables):
 
 ```
-Parameters:
-  Windows version: Windows 10
-  DXVK: enabled
-  Renderer: vulkan
-  Discrete GPU: true (if you have a dedicated GPU)
-  VKD3D: enabled
+WINEPREFIX=$HOME/.autodesk_fusion/wineprefixes/default
+WINE_DIR=$HOME/fusion-wine-build
 ```
-
-Install these dependencies via Bottles → Installers or via `winetricks`:
-```
-d3dx9, d3dcompiler_43, d3dcompiler_47, mono, gecko, webview2
-```
-
-### 1.3 Download and install Fusion 360
-
-Download the Fusion 360 installer from autodesk.com.  
-Run it inside the bottle: Bottles → Run Executable → select the installer.
-
-Follow the installer normally. Fusion will download and install itself.
-
-After installation, Bottles will auto-detect `FusionLauncher.exe` as an executable.
 
 ---
 
-## Part 2 — The Program Arguments (Critical Fix)
+## 1. Prepare the Wine prefix
 
-This is what makes Fusion actually run without crashing.
+Create the prefix with the community installer's dependency step (winetricks: dotnet, vcrun, cjkfonts, win11,
+DXVK overrides…). I used the cryinkfly installer with the host `winehq-staging`; designgears ships the same steps.
 
-In Bottles, go to the detected **Autodesk Fusion** program → edit arguments.  
-Add this **before** `%command%`:
-
-```
-WINEDEBUG=-all WINEDLLOVERRIDES="api-ms-win-crt-private-l1-1-0,api-ms-win-crt-conio-l1-1-0,api-ms-win-crt-convert-l1-1-0,api-ms-win-crt-environment-l1-1-0,api-ms-win-crt-filesystem-l1-1-0,api-ms-win-crt-heap-l1-1-0,api-ms-win-crt-locale-l1-1-0,api-ms-win-crt-math-l1-1-0,api-ms-win-crt-multibyte-l1-1-0,api-ms-win-crt-process-l1-1-0,api-ms-win-crt-runtime-l1-1-0,api-ms-win-crt-stdio-l1-1-0,api-ms-win-crt-string-l1-1-0,api-ms-win-crt-utility-l1-1-0,api-ms-win-crt-time-l1-1-0,atl140,concrt140,msvcp140,msvcp140_1,msvcp140_atomic_wait,ucrtbase,vcomp140,vccorlib140,vcruntime140,vcruntime140_1=n,b;adpclientservice.exe=" %command%
-```
-
-**Why this works:**  
-Without it, Wine uses its own internal replacements for the Microsoft Visual C++ runtime
-DLLs (`vcruntime140`, `msvcp140`, `ucrtbase`, etc.). Fusion 360 ships its own versions
-of these DLLs. The `=n,b` flag (native first, then builtin) forces Wine to use Fusion's
-own copies, which avoids a guaranteed page fault crash in `ntdll.dll` at startup.
-
-The `adpclientservice.exe=` entry prevents the Autodesk Desktop Connector service from
-loading, which is not needed for desktop use and can cause issues under Wine.
-
----
-
-## Part 3 — The OAuth2 Login Problem
-
-This is the hardest part. When you click **Sign In** in Fusion 360, it opens your browser.
-After you log in on autodesk.com, the browser tries to redirect to a URL like:
-
-```
-adskidmgr:/login?code=XXXX&state=YYYY
-```
-
-This `adskidmgr://` is a custom URI scheme. On Linux, the browser needs to hand this
-URL to a program that delivers the OAuth code into the Wine session running Fusion 360.
-
-The challenge: Fusion runs inside a **bwrap sandbox** (Flatpak's isolation layer).
-The `AdskIdentityManager.exe` process waiting for the code is inside that sandbox,
-connected to a specific wineserver instance. If you naively launch a new `wine` process
-to handle the callback, it connects to a different wineserver and never finds the SSO
-server → login fails with "No SSO server is running".
-
-**The solution:** use `nsenter` to enter the bwrap namespace of the running Fusion
-process, then run `AdskIdentityManager.exe` from inside that namespace. This way it
-finds the correct wineserver socket and delivers the OAuth code to the right process.
-
-### 3.1 Create the protocol handler script
+**Then fix what `winetricks sandbox` broke:**
 
 ```bash
-sudo nano /usr/local/bin/autodesk360-handler
+ln -s / "$WINEPREFIX/dosdevices/z:"
 ```
 
-Paste this content:
+Without `Z:` Wine cannot see anything under `/home`: the installer "crashes", segfaults (exit 139), or
+`ShellExecuteEx` says *file not found*. It looks like a Fusion bug; it isn't.
+
+## 2. Install Fusion (skip the self-extractor)
+
+The admin installer is a 7-Zip SFX (`7zS.sfx`) wrapping a Python `streamer.exe` plus the full payload.
+The SFX part is what fails under Wine, so unpack it on Linux and run the streamer directly:
 
 ```bash
-#!/bin/bash
-URL="$1"
-LOGFILE="/tmp/autodesk360-handler.log"
-
-# Adjust this path to match your Bottles bottle location
-WINEPREFIX="$HOME/.var/app/com.usebottles.bottles/data/bottles/bottles/Fusion-360"
-
-# Find the AdskIdentityManager.exe path — it changes with updates
-# Run: find "$WINEPREFIX/drive_c" -name "AdskIdentityManager.exe"
-# and update the path below
-ADSKIDMGR='C:\Program Files\Autodesk\webdeploy\production\<HASH>\Autodesk Identity Manager\AdskIdentityManager.exe'
-
-exec >> "$LOGFILE" 2>&1
-
-echo "$(date -Iseconds) === CALLBACK RECEIVED ==="
-echo "$(date -Iseconds) URL: '$URL'"
-
-# Find the Linux PID of the running Fusion process
-FUSION_PID=$(pgrep -f "Fusion360.exe" | head -1)
-if [ -z "$FUSION_PID" ]; then
-    echo "$(date -Iseconds) ERROR: Fusion360 is not running"
-    exit 1
-fi
-echo "$(date -Iseconds) Fusion360 Linux PID: $FUSION_PID"
-
-# Read the actual UID/GID from the Fusion process (do not hardcode)
-FUSION_UID=$(awk '/^Uid:/{print $2}' /proc/$FUSION_PID/status)
-FUSION_GID=$(awk '/^Gid:/{print $2}' /proc/$FUSION_PID/status)
-
-# Read the DISPLAY used by Fusion
-FUSION_DISPLAY=$(tr '\0' '\n' < /proc/$FUSION_PID/environ 2>/dev/null \
-    | grep '^DISPLAY=' | head -1 | cut -d= -f2-)
-[ -z "$FUSION_DISPLAY" ] && FUSION_DISPLAY=":1"
-
-echo "$(date -Iseconds) UID=$FUSION_UID GID=$FUSION_GID DISPLAY=$FUSION_DISPLAY"
-
-# Enter the bwrap mount+ipc namespaces and run AdskIdentityManager
-# --mount: sees the same /tmp (where the wineserver socket lives)
-# --ipc:   sees the same IPC namespace (shared memory objects)
-# --setuid/--setgid: run as the same user as Fusion (not root)
-# NO --pid: causes issues with --setuid in some kernel configurations
-sudo nsenter -t "$FUSION_PID" --mount --ipc \
-    --setuid "$FUSION_UID" --setgid "$FUSION_GID" -- \
-    env HOME="$HOME" \
-        USER="$USER" \
-        USERNAME="$USER" \
-        LOGNAME="$USER" \
-        WINEPREFIX="$WINEPREFIX" \
-        WINEDEBUG=-all \
-        DISPLAY="$FUSION_DISPLAY" \
-    /app/bin/wine "$ADSKIDMGR" "$URL"
-
-echo "$(date -Iseconds) Exit code: $?"
+curl -L -o FusionAdminInstall.exe "https://dl.appstreaming.autodesk.com/production/installers/Fusion%20Admin%20Install.exe"
+mkdir admin_x && cd admin_x && 7z x ../FusionAdminInstall.exe
+WINEPREFIX="$WINEPREFIX" wine "$PWD/streamer.exe" --globalinstall --quiet
 ```
 
-Make it executable:
-```bash
-sudo chmod +x /usr/local/bin/autodesk360-handler
-```
+About 7 GB ends up in `Program Files/Autodesk/webdeploy/production/<hash>/`.
+A final abort about `NETAPI32.dll.NetGetJoinInformation` is harmless.
 
-### 3.2 Find the AdskIdentityManager path
+**Do not** apply the community's patched `Qt6WebEngineCore.dll` (06-2025) to 2702.x: it crashes inside
+`qt6webenginecore` right after startup. Keep the one Fusion ships.
 
-The `<HASH>` in the path changes with every Fusion update. Find it with:
+## 3. WebView2 109 (login screen)
+
+Fusion's login uses WebView2. Versions ≥ 120 don't render under Wine; **109.0.1518.78** does
+(standalone installers: [aedancullen/webview2-evergreen-standalone-installer-archive](https://github.com/aedancullen/webview2-evergreen-standalone-installer-archive)).
+
+The installer tends to hang in `MicrosoftEdgeUpdate.exe`. If it does, the runtime is just a folder:
+copy `EdgeWebView/Application/109.0.1518.78` into `drive_c/Program Files (x86)/Microsoft/` and register it.
+**The `ClientState\EBWebView` value is the one people miss.** `WebView2Loader.dll` reads it, and without it
+IdentityManager logs `Prerequisites to launch IM screen not met. No WebView2 installed`:
 
 ```bash
-find ~/.var/app/com.usebottles.bottles/data/bottles/bottles/Fusion-360/drive_c \
-  -name "AdskIdentityManager.exe" 2>/dev/null
+G='{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+V='C:\Program Files (x86)\Microsoft\EdgeWebView\Application\109.0.1518.78'
+for K in "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\$G" "HKCU\\Software\\Microsoft\\EdgeUpdate\\Clients\\$G"; do
+  wine reg add "$K" /v pv /t REG_SZ /d 109.0.1518.78 /f
+  wine reg add "$K" /v location /t REG_SZ /d 'C:\Program Files (x86)\Microsoft\EdgeWebView\Application' /f
+done
+for K in "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\ClientState\\$G" \
+         "HKLM\\SOFTWARE\\Microsoft\\EdgeUpdate\\ClientState\\$G" \
+         "HKCU\\Software\\Microsoft\\EdgeUpdate\\ClientState\\$G"; do
+  wine reg add "$K" /v EBWebView /t REG_SZ /d "$V" /f
+done
+# keep Edge from auto-updating itself to a broken version
+wine reg add 'HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate' /v UpdateDefault /t REG_DWORD /d 0 /f
+wine reg add 'HKLM\SOFTWARE\WOW6432Node\Policies\Microsoft\EdgeUpdate' /v UpdateDefault /t REG_DWORD /d 0 /f
 ```
 
-Update the `ADSKIDMGR` variable in the handler with the full Windows path
-(using backslashes), e.g.:
-```
-C:\Program Files\Autodesk\webdeploy\production\4bca736...\Autodesk Identity Manager\AdskIdentityManager.exe
-```
+At this point Fusion already starts and logs in with the host `winehq-staging`, but the viewport stays empty.
 
-### 3.3 Register the protocol handler
+## 4. Patched Wine in Docker
 
-Create the desktop entry:
+Download `fusion-wine-build.tar.gz` from the
+[designgears releases](https://github.com/designgears/Autodesk-Fusion-360-for-Linux/releases), check its `SHA256SUMS`,
+and extract it to `$HOME` (→ `~/fusion-wine-build`, Wine 11.17).
+On 22.04 it fails with ``GLIBC_2.38 not found``, and so does their GE-Proton build. So build a small
+Ubuntu 24.04 runtime image (this build is pure WoW64, so no i386 libraries are needed):
 
 ```bash
-nano ~/.local/share/applications/adskidmgr.desktop
+docker build -t fusion-wine:latest \
+  --build-arg USERNAME="$USER" \
+  --build-arg LOCALE=en_US.UTF-8 \
+  --build-arg TZONE="$(cat /etc/timezone)" \
+  docker/
 ```
+
+The three build args are not cosmetic:
+
+| Build arg | What breaks without it |
+|---|---|
+| `USERNAME` | uid 1000 is `ubuntu` in the image → Wine creates a new `drive_c/users/ubuntu` profile → your login is gone |
+| `LOCALE` | Wine starts in the `C` locale → Fusion crashes in `nsaddinmgr10` during *initialize server addins* |
+| `TZONE` | *"Your time is not synchronized with the server"*. Mounting `/etc/localtime` does **not** help |
+
+## 5. Switch Fusion to OpenGL
+
+With Direct3D 11 (DXVK or wined3d) the grid and ViewCube draw but **bodies do not**. DXVK logs
+`D3D11Device::CreateShaderModule: Class linkage not supported`, and those are exactly the surface shaders.
+Fusion still ships an OpenGL backend. With Fusion **closed**, change `driverOptionId` in **both** option files:
+
+```
+drive_c/users/<you>/AppData/Roaming/Autodesk/Neutron Platform/Options/NMachineSpecificOptions.xml   (UTF-16!)
+drive_c/users/<you>/AppData/Local/Autodesk/Neutron Platform/Options/NMachineSpecificOptions.xml
+```
+
+```xml
+<driverOptionId ... UserName="Graphics driver" Value="VirtualDeviceGLCore"/>
+```
+
+The Roaming file is UTF-16, so plain `sed` silently does nothing. For example:
+
+```bash
+python3 - "$FILE" <<'PY'
+import sys; p=sys.argv[1]; b=open(p,'rb').read()
+enc='utf-16' if b[:2] in (b'\xff\xfe',b'\xfe\xff') else 'utf-8'
+s=b.decode(enc).replace('Value="VirtualDeviceDx11"','Value="VirtualDeviceGLCore"', 1)
+open(p,'wb').write(s.encode(enc))
+PY
+```
+
+The log should then say `Initializing OGS Device: VirtualDeviceGLCore ... Success!`.
+
+## 6. Launch
+
+```bash
+bin/fusion360            # docker run ... wine Fusion360.exe
+docker rm -f fusion360   # hard stop
+```
+
+Never run the container and a host Wine on the same prefix at the same time: two wineservers corrupt it.
+
+## 7. Login callback
+
+`Sign In` opens your normal browser. At the end the browser gets `adskidmgr:/login?code=…&state=…`.
+[`bin/adskidmgr-handler`](bin/adskidmgr-handler) passes it to `AdskIdentityManager.exe` with `docker exec`
+inside the running container, so it reaches the same wineserver as Fusion. No `nsenter` or `sudo` needed
+(that was the hard part of the Bottles guide). Register it:
 
 ```ini
+# ~/.local/share/applications/adskidmgr-handler.desktop
 [Desktop Entry]
-Name=Autodesk Identity Manager
-Exec=/usr/local/bin/autodesk360-handler %u
 Type=Application
-NoDisplay=false
-Terminal=false
-MimeType=x-scheme-handler/adskidmgr;x-scheme-handler/autodesk360;
+Name=Autodesk Identity Manager (Docker)
+Exec=/path/to/bin/adskidmgr-handler %u
+NoDisplay=true
+MimeType=x-scheme-handler/adskidmgr;
 ```
-
-Register it:
-```bash
-xdg-mime default adskidmgr.desktop x-scheme-handler/adskidmgr
-xdg-mime default adskidmgr.desktop x-scheme-handler/autodesk360
-update-desktop-database ~/.local/share/applications/
-```
-
-### 3.4 Allow nsenter without password
-
-The handler is called by the browser (Firefox), which cannot type a sudo password.
-Create a sudoers rule:
 
 ```bash
-sudo nano /etc/sudoers.d/autodesk360-nsenter
+xdg-mime default adskidmgr-handler.desktop x-scheme-handler/adskidmgr
 ```
 
-```
-your-username ALL=(root) NOPASSWD: /usr/bin/nsenter
-```
+Always pass the full URL as an argument. `wine start adskidmgr:...` truncates at the first `&` and PKCE fails.
 
-Replace `your-username` with your actual Linux username.  
-Verify the path to nsenter with `which nsenter` (usually `/usr/bin/nsenter`).
+> I tested the Docker-side `docker exec` into Fusion's wineserver. The actual login in this setup was done
+> earlier with the host Wine (same prefix, same flow). The session token is stored in the prefix and survives.
 
-### 3.5 Configure Firefox to use the handler
-
-Open Firefox and go to `about:config`.  
-Search for: `network.protocol-handler.expose.adskidmgr`  
-Set it to `false` (creates it if it doesn't exist).
-
-Then open your Firefox profile's `handlers.json` to confirm or manually add:
-
-```bash
-# Find your profile
-ls ~/.mozilla/firefox/*.default-release/handlers.json
-```
-
-Edit the file and make sure the `schemes` section includes:
-```json
-"adskidmgr": { "action": 4 }
-```
-
-Action `4` = use external application (your handler script).
-
-Alternatively, trigger it automatically: after visiting the OAuth page once and Firefox
-asks what to do with `adskidmgr://`, choose "Open with" → "Other" → browse to
-`/usr/local/bin/autodesk360-handler` and check "Remember for this site".
-
----
-
-## Part 4 — Logging In
-
-1. Make sure Fusion 360 is open and showing the login screen.
-2. Click **Sign In** — your browser will open autodesk.com.
-3. Log in normally with your Autodesk account.
-4. After login, the browser receives the `adskidmgr://` callback and calls your handler.
-5. The handler enters the Bottles bwrap namespace, runs `AdskIdentityManager.exe`,
-   which finds the running SSO server and delivers the OAuth code.
-6. Fusion 360 shows the main interface — you are logged in.
-
-**The OAuth code expires in ~5 minutes.** Complete the browser login quickly.
-
-To monitor the handler in real time:
-```bash
-tail -f /tmp/autodesk360-handler.log
-```
-
-A successful delivery looks like:
-```
-Sending oauth2 code signal AdOAuth2Code-XXXX to the SSO server process pid XXXX
-Found valid http route: /login
-Sending quit signal AdOAuth2Code-XXXX
-Exit code: 0
-```
-
----
-
-## Part 5 — Performance Tips
-
-Fusion 360 runs slower than on Windows — this is expected under Wine/translation layers.
-These settings help:
-
-**In the bottle (bottle.yml or Bottles UI):**
-- `renderer: vulkan` + `dxvk: true` → DXVK translates Direct3D 11 to Vulkan.
-  This is faster and more stable than the default OpenGL translation (WineD3D).
-- `discrete_gpu: true` → uses your dedicated GPU.
-
-**Inside Fusion 360 (Preferences → Graphics):**
-- Lower visual effects quality
-- Disable shadows and ambient occlusion
-- Reduce or disable antialiasing
-- Disable reflection and texture display if not needed
+The login window may sit on a black splash. Click inside it and the *Sign In* button appears.
 
 ---
 
 ## Troubleshooting
 
-### "No SSO server is running" in handler log
-The wine process launched by the handler is not connecting to the correct wineserver.
-Causes and fixes:
-- Fusion 360 is not running → start Fusion first, then log in.
-- `FUSION_PID` found the wrong process → check with `pgrep -af Fusion360`.
-- Namespace entry failed → check sudo permissions for nsenter.
-- Run the diagnostic commands in the handler (see `id` output in the log).
+| Symptom | Where to look / fix |
+|---|---|
+| Nothing obvious, just a crash | `drive_c/users/<you>/AppData/Local/Autodesk/Neutron Platform/logs/AppLogFile*.log`, look for `Crashing thread` and the module list under it |
+| Login problems | `.../AppData/Local/Autodesk/Identity Services/Log/IdServices.log` |
+| DXVK details | run with `DXVK_LOG_LEVEL=info DXVK_LOG_PATH=...` |
+| Fusion sees the NVIDIA card as "Vendor: AMD" | DXVK hides NVIDIA by default. The launcher sets `DXVK_CONFIG="dxgi.hideNvidiaGpu = False"` |
+| "Fusion Service Utility" window pops up | Several crashes in a row. Close it and fix the cause; no need to *Repair* |
+| Recovered-documents dialog on every start | Fusion was killed with an unsaved doc. *Close* keeps it under File → Recover Documents |
+| A Python add-in stops auto-starting | Fusion skips add-ins that were running when it was killed. Re-enable in Shift+S |
+| `OctoPrint_for_Fusion360` error `failed to find product CAMProductType` | Remove the bundle from `AppData/Roaming/Autodesk/ApplicationPlugins` if you don't use it |
 
-### Fusion crashes with page fault in ntdll.dll on startup
-Missing or wrong `WINEDLLOVERRIDES`. Apply the full overrides string from Part 2.
-
-### cer_dialog crash after Fusion crash
-Normal behavior under Wine. The Autodesk crash reporter (`cer_dialog.exe`) itself
-crashes because it uses Windows APIs not fully implemented in Wine. Ignore it.
-Clear lock files and restart Fusion:
-```bash
-find ~/.var/app/com.usebottles.bottles/data/bottles/bottles/Fusion-360 \
-  -name "*.lock" -o -name "*.lck" | xargs rm -f 2>/dev/null
-```
-
-### Fusion won't open after a crash (stuck on "Initializing")
-Stale lock files from the previous crash are blocking startup. Run:
-```bash
-BOTTLE="$HOME/.var/app/com.usebottles.bottles/data/bottles/bottles/Fusion-360"
-find "$BOTTLE" \( -name "*.lock" -o -name "*.lck" \) -delete
-pkill -f wineserver
-```
-Then reopen from Bottles.
-
-### AdskIdentityManager.exe path changes after update
-Fusion updates itself to a new production hash. After an update, find the new path:
-```bash
-find ~/.var/app/com.usebottles.bottles/data/bottles/bottles/Fusion-360/drive_c \
-  -name "AdskIdentityManager.exe"
-```
-Update the `ADSKIDMGR` variable in `/usr/local/bin/autodesk360-handler`.
-
----
-
-## Why This Works — Technical Summary
-
-Fusion 360's login uses **OAuth2 PKCE**. The flow is:
-
-```
-Fusion 360 (Wine) → opens browser → user logs in → autodesk.com redirects to
-adskidmgr://login?code=XXX&state=YYY → browser calls handler script →
-handler enters bwrap namespace via nsenter → runs AdskIdentityManager.exe
-inside the correct wineserver context → finds IDSDKIpcServers-v2 shared memory
-→ signals AdOAuth2Code-<PID> event → SSO server exchanges code+PKCE verifier
-for access token → Fusion 360 is authenticated
-```
-
-The bwrap sandbox (Flatpak's isolation) creates private mount and IPC namespaces.
-The wineserver socket lives at `/tmp/.wine-<uid>/server-<dev>-<inode>/socket` inside
-the bwrap's private `/tmp`. Without `nsenter --mount`, any wine process you launch
-on the host won't see this socket and will start its own isolated wineserver — which
-has no knowledge of Fusion's SSO server.
-
-`nsenter --mount --ipc` enters the existing namespaces, making the new wine process
-join the correct wineserver session and find the waiting SSO server process.
-
-The `wine start "adskidmgr://..."` approach (using ShellExecute) **does not work**
-because Wine's ShellExecute truncates the URL at the first `&` character, dropping
-the `&state=...` parameter which is required for PKCE verification.
-You must call `AdskIdentityManager.exe` directly with the full URL as an argument.
-
----
-
-## Files Summary
+## Files
 
 | File | Purpose |
 |---|---|
-| `/usr/local/bin/autodesk360-handler` | Protocol handler — delivers OAuth callback to Wine |
-| `~/.local/share/applications/adskidmgr.desktop` | Registers `adskidmgr://` scheme with the desktop |
-| `/etc/sudoers.d/autodesk360-nsenter` | Allows passwordless `sudo nsenter` for the handler |
-| `~/.mozilla/firefox/*.default-release/handlers.json` | Firefox protocol → handler association |
-
----
-
-*Tested May 2026. Contributions and corrections welcome.*
+| [`docker/Dockerfile`](docker/Dockerfile) | Ubuntu 24.04 runtime for the patched Wine (NVIDIA Vulkan ICD, locale, TZ, user) |
+| [`bin/fusion360`](bin/fusion360) | Launcher (`docker run` with GPU, X11 and `$HOME`) |
+| [`bin/adskidmgr-handler`](bin/adskidmgr-handler) | Browser → IdentityManager login callback through `docker exec` |
+| [`docs/legacy-bottles-flatpak.md`](docs/legacy-bottles-flatpak.md) | Previous Bottles/Flatpak guide (May 2026) |
