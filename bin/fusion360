@@ -7,12 +7,16 @@ WINEPREFIX="${WINEPREFIX:-$HOME/.autodesk_fusion/wineprefixes/default}"
 IMAGE="${IMAGE:-fusion-wine:latest}"
 EXE=$(find "$WINEPREFIX/drive_c/Program Files/Autodesk/webdeploy/production" -name Fusion360.exe -printf "%T+ %p\n" | sort -r | head -1 | cut -d' ' -f2-)
 [ -z "$EXE" ] && { echo "Fusion360.exe not found in $WINEPREFIX"; exit 1; }
+# Shared secret for the optional MCP add-in (mcp/): enables execute_python and protects port 7776
+TOKEN_FILE="${FUSION_MCP_DIR:-$HOME/.autodesk_fusion}/mcp_token"
+[ -s "$TOKEN_FILE" ] || (umask 077; mkdir -p "$(dirname "$TOKEN_FILE")"; head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$TOKEN_FILE")
 docker rm -f fusion360 >/dev/null 2>&1
 exec docker run --rm --name fusion360 --gpus all -e NVIDIA_DRIVER_CAPABILITIES=all \
   --network host --ipc host -u "$(id -u):$(id -g)" \
   -e DISPLAY="$DISPLAY" -e XAUTHORITY=/tmp/.Xauthority -v "${XAUTHORITY:-$HOME/.Xauthority}":/tmp/.Xauthority:ro \
   -v /tmp/.X11-unix:/tmp/.X11-unix -v /etc/machine-id:/etc/machine-id:ro \
   -v "$HOME":"$HOME" -w "$HOME" -e HOME="$HOME" -e USER="$USER" \
+  -e FUSION_MCP_TOKEN="$(cat "$TOKEN_FILE")" -e FUSION_MCP_DIR="${FUSION_MCP_DIR:-}" \
   -e WINEPREFIX="$WINEPREFIX" -e WINEDEBUG="${WINEDEBUG:--all}" -e WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-}" \
   -e DXVK_LOG_LEVEL=none -e DXVK_CONFIG="dxgi.hideNvidiaGpu = False" \
   "$IMAGE" "$WINE_DIR/bin/wine" "$EXE"

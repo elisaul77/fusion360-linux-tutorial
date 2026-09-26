@@ -1,0 +1,13 @@
+{
+  "autodeskProduct": "Fusion360",
+  "type": "addin",
+  "id": "Fusion360MCP",
+  "author": "fusion360-linux-tutorial contributors",
+  "description": {
+    "": "MCP bridge — exposes Fusion 360 API over HTTP for Claude Code"
+  },
+  "version": "1.0.0",
+  "runOnStartup": false,
+  "supportedOS": "windows|osx",
+  "editEnabled": true
+}

@@ -193,6 +193,13 @@ The login window may sit on a black splash. Click inside it and the *Sign In* bu
 
 ---
 
+## 8. Optional: let an AI assistant model in Fusion (MCP)
+
+[`mcp/`](mcp/) contains an MCP server + Fusion add-in with a `fusion_execute_python` tool (full Fusion API),
+token-protected. See [`mcp/README.md`](mcp/README.md).
+
+---
+
 ## Troubleshooting
 
 | Symptom | Where to look / fix |
@@ -213,4 +220,5 @@ The login window may sit on a black splash. Click inside it and the *Sign In* bu
 | [`docker/Dockerfile`](docker/Dockerfile) | Ubuntu 24.04 runtime for the patched Wine (NVIDIA Vulkan ICD, locale, TZ, user) |
 | [`bin/fusion360`](bin/fusion360) | Launcher (`docker run` with GPU, X11 and `$HOME`) |
 | [`bin/adskidmgr-handler`](bin/adskidmgr-handler) | Browser → IdentityManager login callback through `docker exec` |
+| [`mcp/`](mcp/) | Optional MCP server + Fusion add-in (`execute_python`, token-protected) |
 | [`docs/legacy-bottles-flatpak.md`](docs/legacy-bottles-flatpak.md) | Previous Bottles/Flatpak guide (May 2026) |
