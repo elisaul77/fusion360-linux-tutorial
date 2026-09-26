@@ -1,18 +1,29 @@
-# Fusion360MCP — drive Autodesk Fusion from an AI assistant (Linux / Wine)
+# 🤖 Fusion360MCP — drive Autodesk Fusion from an AI assistant (Linux / Wine)
 
 An [MCP](https://modelcontextprotocol.io) server + Fusion add-in that let an MCP client (Claude Code, Claude Desktop…)
 model in Fusion running under Wine, including a **`fusion_execute_python`** tool with the **full Fusion API**.
 That puts Fusion on par with the FreeCAD MCP bridges.
 
-```
-MCP client ──stdio──> server/server.py (Linux host) ──HTTP 127.0.0.1:7776──> Fusion360MCP add-in (inside Fusion/Wine)
-                                                                              └─ runs every call on Fusion's main thread
+```mermaid
+sequenceDiagram
+    participant C as 🤖 MCP client
+    participant S as server.py (Linux host)
+    participant A as Fusion360MCP add-in (Wine)
+    participant F as Fusion main thread
+    C->>S: tools/call fusion_execute_python {code}
+    S->>A: POST /command + X-MCP-Token (127.0.0.1:7776)
+    A->>A: reject if Origin header or bad token (403)
+    A->>F: fireCustomEvent(id, payload)
+    F->>F: exec(code) with adsk, app, design, root
+    F-->>A: (id, {stdout, result})
+    A-->>S: JSON (response matched by id)
+    S-->>C: text / image
 ```
 
 > Tested September 2026 with Fusion 2702/2705 on the setup from the [main README](../README.md)
 > (Docker + patched Wine + OpenGL). Should work with any Wine setup where Fusion runs.
 
-## Tools
+## 🧩 Tools
 
 | Tool | What it does |
 |---|---|
@@ -25,7 +36,7 @@ MCP client ──stdio──> server/server.py (Linux host) ──HTTP 127.0.0.1
 
 Units in the API are **centimetres**. Fusion is **Y-up**: sketch on **XZ** for parts that stand on the ground.
 
-## Security — read this
+## 🔐 Security — read this
 
 `execute_python` means *code execution on your machine*. A plain `127.0.0.1` port is not enough:
 any web page open in your browser can POST to localhost. So:
@@ -39,7 +50,7 @@ The secret lives in `~/.autodesk_fusion/mcp_token` (mode 600). [`bin/fusion360`]
 and passes it to Fusion as `FUSION_MCP_TOKEN`. The server reads the same file.
 Override the folder with `FUSION_MCP_DIR` (set it for both the launcher and the MCP server).
 
-## Install
+## ⚙️ Install
 
 1. **Add-in:** copy `addin/Fusion360MCP/` to
    `drive_c/users/<you>/AppData/Roaming/Autodesk/Autodesk Fusion 360/API/AddIns/`.
@@ -50,7 +61,7 @@ Override the folder with `FUSION_MCP_DIR` (set it for both the launcher and the 
    ```
 3. Start Fusion with `bin/fusion360` so the token exists. In Claude Code, run `/mcp` → *Reconnect* after changing the server.
 
-## Lessons learned (Wine specifics)
+## 🧠 Lessons learned (Wine specifics)
 
 - **Wine does not forward `$HOME`** to Windows programs. The add-in finds the Linux home via `WINEHOMEDIR`
   (`\??\Z:\home\<user>`) and writes shared files through `Z:\` (which maps to `/`).
@@ -63,7 +74,7 @@ Override the folder with `FUSION_MCP_DIR` (set it for both the launcher and the 
 - **Modal dialogs block everything** ("Recovered documents" at startup, the Add-ins dialog). Close them.
 - If Fusion is killed while the add-in runs, Fusion **skips it on the next start** → re-enable it in Shift+S.
 
-## Example
+## ✨ Example
 
 A parametric cup: user parameters, a driven diameter dimension, and the shell's open face chosen by geometry
 instead of a guessed index:
